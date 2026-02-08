@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+kaggle.json
+experiment_logs/
+data/
+datasets/
+outputs/
+checkpoints/
+*.pth
+*.pt
+*.ckpt
+*.tar
+*.zip
+*.npz
+wandb/
+runs/
