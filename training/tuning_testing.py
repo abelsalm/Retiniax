@@ -148,6 +148,7 @@ def evaluate_with_temperatures(
     temperatures: torch.Tensor,
     device=None,
     threshold: float = 0.5,
+    training_loss: nn.Module = None,
 ):
     """
     Evaluate a model with per-class temperature scaling for accuracies, while
@@ -224,9 +225,12 @@ def evaluate_with_temperatures(
     tp_bce = float(tp_loss_fn(probs_no_temp, targets_torch).item())
     tn_bce = float(tn_loss_fn(probs_no_temp, targets_torch).item())
 
+    training_loss_value = float(training_loss(probs_no_temp, targets_torch).item())
+    
+    print(f"Training loss on validation set: {training_loss_value}")
     print(f"Tempered TP accuracy: {tp_acc}")
     print(f"Tempered TN accuracy: {tn_acc}")
     print(f"Un-tempered TP BCE:   {tp_bce}")
     print(f"Un-tempered TN BCE:   {tn_bce}")
 
-    return tp_acc, tn_acc, tp_bce, tn_bce
+    return training_loss_value, tp_acc, tn_acc, tp_bce, tn_bce

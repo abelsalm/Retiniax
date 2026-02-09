@@ -208,7 +208,7 @@ def _create_scheduler(optimizer, config: TrainingConfig, num_epochs: int):
 
 
 # function to train the model for an epoch given a dataloader, a criterion, a config, and a device--------------------------------------------------
-def train_epoch(model, dataloader, criterion, optimizer, device='cuda', multi=True, multi_h=True):
+def train_epoch(model, dataloader, criterion, optimizer, device='cuda', multi_h=True):
     """
     Fonction d'entraînement pour une époque.
     
@@ -228,7 +228,7 @@ def train_epoch(model, dataloader, criterion, optimizer, device='cuda', multi=Tr
     total_loss = 0.0
     num_batches = 0
     
-    for batch in dataloader:
+    for i, batch in enumerate(dataloader):
         # Extraire images et labels du batch
         if isinstance(batch, dict):
             images = batch['image']
@@ -240,12 +240,16 @@ def train_epoch(model, dataloader, criterion, optimizer, device='cuda', multi=Tr
         
         images = images.to(device)
         labels = labels.to(device)
+
+        if i == 0:
+            labels_for_viz = labels.clone()
+            visualize_batch(images, labels_for_viz)
         
         # Zero gradients
         optimizer.zero_grad()
         
         # Calculer la loss
-        loss = _compute_loss(model, images, labels, criterion, multi, multi_h)
+        loss = _compute_loss(model, images, labels, criterion, multi_h)
         
         # Backward pass
         loss.backward()

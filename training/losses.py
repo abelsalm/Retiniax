@@ -381,6 +381,132 @@ TROUBLES DES MILIEUX                 3.089559
 TUMEUR                               9.304259'''
 weights = torch.tensor([1.0, 2.753826, 4.914287, 1.851194, 4.029831, 1.857711, 1.705509, 9.063442, 3.572063, 6.656357, 5.986716, 4.978810, 3.089559, 9.304259])
 
+### Logical combined BCE ###--------------------------------------------------------------------------------
+class CombinedBCELoss(nn.Module):
+    """
+    Weighted combination of TruePositiveBCELoss and TrueNegativeBCELoss.
+
+    total = w_tp * TruePositiveBCE + w_tn * TrueNegativeBCE
+
+    Args:
+        w_tp (float): Weighting factor for the true-positive BCE term.
+        w_tn (float): Weighting factor for the true-negative BCE term.
+        class_weight (torch.Tensor, optional): Per-class weight tensor of shape (C,)
+            forwarded to both TruePositiveBCELoss and TrueNegativeBCELoss.
+    """
+    def __init__(self, w_tp=1.0, w_tn=1.0, class_weight_tp=None, class_weight_tn=None):
+        super().__init__()
+        self.w_tp = w_tp
+        self.w_tn = w_tn
+        self.tp_loss = TruePositiveBCELoss(class_weight=class_weight_tp)
+        self.tn_loss = TrueNegativeBCELoss(class_weight=class_weight_tn)
+
+    def forward(self, predictions, targets):
+        """
+        Args:
+            predictions (torch.Tensor): Predicted probabilities (after sigmoid), shape (N, C).
+            targets (torch.Tensor): Ground-truth binary labels, shape (N, C).
+
+        Returns:
+            torch.Tensor: Weighted sum of TP-BCE and TN-BCE.
+        """
+        loss_tp = self.tp_loss(predictions, targets)
+        loss_tn = self.tn_loss(predictions, targets)
+        return self.w_tp * loss_tp + self.w_tn * loss_tn
+
+
+### COMBINED COHERENCE LOSS (multi-head criterion) ###----------------------------------------------------------
+class CombinedCoherenceLoss(nn.Module):
+    """
+    Combined loss for the multi-head architecture (pathology head + binary head).
+    
+    Combines:
+      1. Focal (or BCE) loss on the pathology logits
+      2. Focal (or BCE) loss on the binary logit
+      3. Coherence term: MSE between sigmoid(binary) and max(sigmoid(patho))
+    
+    Args:
+        w_patho:           weight for the pathology loss term
+        w_binary:          weight for the binary loss term
+        w_coherence:       weight for the coherence loss term
+        pos_weight_value:  positive-class weight (used to derive focal alpha when > 1)
+        use_focal_loss:    if True use FocalLoss, else plain BCEWithLogitsLoss
+        focal_alpha:       default focal alpha
+        focal_gamma:       focal gamma
+        focal_alpha_patho: optional per-class alpha tensor for pathology focal loss
+    """
+    def __init__(
+        self,
+        w_patho=1.0,
+        w_binary=1.0,
+        w_coherence=0.5,
+        pos_weight_value=1.0,
+        use_focal_loss=True,
+        focal_alpha=0.25,
+        focal_gamma=2.0,
+        focal_alpha_patho=None,
+    ):
+        super().__init__()
+        self.w_patho = w_patho
+        self.w_binary = w_binary
+        self.w_coherence = w_coherence
+        self.pos_weight_value = pos_weight_value
+        self.use_focal_loss = use_focal_loss
+
+        if use_focal_loss:
+            # Pathology focal loss
+            if focal_alpha_patho is None:
+                alpha_patho = (
+                    pos_weight_value / (1 + pos_weight_value)
+                    if pos_weight_value > 1.0
+                    else focal_alpha
+                )
+            else:
+                alpha_patho = focal_alpha_patho
+            self.focal_loss_patho = FocalLoss(alpha=alpha_patho, gamma=focal_gamma)
+
+            # Binary focal loss
+            alpha_binary = (
+                pos_weight_value / (1 + pos_weight_value)
+                if pos_weight_value > 1.0
+                else focal_alpha
+            )
+            self.focal_loss_binary = FocalLoss(alpha=alpha_binary, gamma=focal_gamma)
+        else:
+            self.bce_loss = nn.BCEWithLogitsLoss()
+
+    def forward(self, logits_patho, logits_binary, targets_patho, targets_binary):
+        device = logits_patho.device
+
+        # 1. Pathology loss
+        if self.use_focal_loss:
+            loss_patho = self.focal_loss_patho(logits_patho, targets_patho)
+        else:
+            pos_weight = torch.full(
+                (logits_patho.size(1),), self.pos_weight_value, device=device
+            )
+            loss_patho = nn.BCEWithLogitsLoss(pos_weight=pos_weight)(
+                logits_patho, targets_patho
+            )
+
+        # 2. Binary loss
+        if self.use_focal_loss:
+            loss_binary = self.focal_loss_binary(logits_binary, targets_binary)
+        else:
+            loss_binary = self.bce_loss(logits_binary, targets_binary)
+
+        # 3. Coherence loss (MSE between binary prob and max pathology prob)
+        probs_patho = torch.sigmoid(logits_patho)
+        probs_binary = torch.sigmoid(logits_binary)
+        max_patho_prob, _ = torch.max(probs_patho, dim=1, keepdim=True)
+        loss_coherence = torch.mean((probs_binary - max_patho_prob) ** 2)
+
+        return (
+            self.w_patho * loss_patho
+            + self.w_binary * loss_binary
+            + self.w_coherence * loss_coherence
+        )
+
 
 if __name__ == "__main__":
     print(f"Weight for the classes: {weights}")
