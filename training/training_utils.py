@@ -17,7 +17,7 @@ from sklearn.metrics import f1_score, accuracy_score
 
 
 # classes and functions--------------------------------------------------------------------------------------------------
-CLASSES = ['NCS', 'AUTRES', 'CATARACTE', 'CICATRICE', 'DIABETE', 'DMLA', 
+CLASSES = ['NCS', 'AUTRES', 'CICATRICE', 'DIABETE', 'DMLA', 
            'DRUSEN', 'GLAUCOME', 'UVEITE', 'MYOPIE', 'OEDEME', 
            'VASCULAIRE', 'RETINE', 'TROUBLES', 'TUMEUR']
 
