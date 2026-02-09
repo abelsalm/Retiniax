@@ -50,27 +50,29 @@ class TruePositiveBCELoss(nn.Module):
                 the shape of `targets`.
         """
         super().__init__()
-        # Base BCE loss (unweighted). We will handle class_weight manually.
-        self.loss_fn = nn.BCELoss(*args, **kwargs)
         self.class_weight = class_weight
 
     def forward(self, predictions, targets):
-        # Ensure torch tensors for indexing
-        tp_mask = (targets == 1)
-        if tp_mask.sum() == 0:
-            return torch.tensor(0.0, device=predictions.device, requires_grad=True)
+        targets = targets.float()
+        sum_of_targets = torch.sum(targets)
 
-        preds_tp = predictions[tp_mask]
-        targets_tp = targets[tp_mask]
-
-        # If no class weights provided, fall back to standard BCE
         if self.class_weight is None:
-            return self.loss_fn(preds_tp, targets_tp)
+            bce = F.binary_cross_entropy_with_logits(predictions, targets, reduction='none')  # [N, C]
+        else:
+            cw = self.class_weight.to(predictions.device)
+            print(f"predictions: {predictions.shape}")
+            print(f"targets: {targets.shape}")
+            print(f"predictions values: {predictions}")
+            print(f"targets values: {targets}")
+            bce = F.binary_cross_entropy_with_logits(predictions, targets,
+                                         weight=cw, reduction='none')  # [N, C]
+        positive_mask = (targets == 1).float()
+        bce = bce * positive_mask
+        print(f"bce: {bce}")
 
-        # Apply element-wise weights for multi-label classes
-        class_weight = self.class_weight.to(predictions.device)
-        weight_tp = class_weight[tp_mask]
-        return F.binary_cross_entropy(preds_tp, targets_tp, weight=weight_tp)
+        # By zeroing predictions for TN, targets==0 entries will have zero loss (BCE(0,0)=0)
+        # Average over ALL (so only TPs matter in the mean)
+        return bce.sum()/sum_of_targets
 
 # BCE on the pathologies for true negatives as a nn.Module
 # TORCH VERSION
@@ -83,26 +85,25 @@ class TrueNegativeBCELoss(nn.Module):
                 the shape of `targets`.
         """
         super().__init__()
-        # Base BCE loss (unweighted). We will handle class_weight manually.
-        self.loss_fn = nn.BCELoss(*args, **kwargs)
         self.class_weight = class_weight
 
     def forward(self, predictions, targets):
-        tn_mask = (targets == 0)
-        if tn_mask.sum() == 0:
-            return torch.tensor(0.0, device=predictions.device, requires_grad=True)
+        targets = targets.float()
+        sum_of_targets = torch.sum(1 - targets)
 
-        preds_tn = predictions[tn_mask]
-        targets_tn = targets[tn_mask]
-
-        # If no class weights provided, fall back to standard BCE
         if self.class_weight is None:
-            return self.loss_fn(preds_tn, targets_tn)
+            bce = F.binary_cross_entropy_with_logits(predictions, targets, reduction='none')  # [N, C]
+        else:
+            cw = self.class_weight.to(predictions.device)
+            bce = F.binary_cross_entropy_with_logits(predictions, targets,
+                                         weight=cw, reduction='none')  # [N, C]
+        negative_mask = (targets == 0).float()
+        bce = bce * negative_mask
+        print(f"tn bce: {bce}")
 
-        # Apply element-wise weights for multi-label classes
-        class_weight = self.class_weight.to(predictions.device)
-        weight_tn = class_weight[tn_mask]
-        return F.binary_cross_entropy(preds_tn, targets_tn, weight=weight_tn)
+        # By zeroing predictions for TN, targets==0 entries will have zero loss (BCE(0,0)=0)
+        # Average over ALL (so only TPs matter in the mean)
+        return bce.sum()/sum_of_targets
 
 
 

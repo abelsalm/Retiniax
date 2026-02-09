@@ -409,7 +409,7 @@ monai_transform_sequence = Compose(
         MaskCircularRegiond(keys=[img_key]),
 
         # resize
-        Resized(keys=[img_key], spatial_size=(224, 224), mode="bilinear"),
+        Resized(keys=[img_key], spatial_size=(384, 384), mode="bilinear"),
         
         # Ensure the final output is a PyTorch Tensor
         ToTensorD(keys=[img_key])

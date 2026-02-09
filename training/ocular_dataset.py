@@ -11,6 +11,9 @@ class OcularDatasetBinary(Dataset):
     Dataset personnalisé pour les rétinographies, gérant les labels multi-labels
     à partir d'un fichier CSV.
     """
+    # Common image extensions to try when the CSV filename has no extension
+    _IMG_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif')
+
     def __init__(self, csv_file: str, data_dir: str, transform: Compose):
         """
         :param csv_file: Chemin vers le fichier CSV contenant les noms de fichiers et les labels.
@@ -29,11 +32,25 @@ class OcularDatasetBinary(Dataset):
     def __len__(self) -> int:
         return len(self.data_frame)
 
+    @staticmethod
+    def _resolve_image_path(base_path: str, extensions=_IMG_EXTENSIONS) -> str:
+        """Return *base_path* as-is if it exists, otherwise try appending
+        common image extensions and return the first match."""
+        if os.path.isfile(base_path):
+            return base_path
+        for ext in extensions:
+            candidate = base_path + ext
+            if os.path.isfile(candidate):
+                return candidate
+        raise FileNotFoundError(
+            f"Image not found: {base_path} (also tried extensions {extensions})"
+        )
+
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         
         # --- 1. Chemin de l'Image ---
         file_name = self.data_frame.iloc[idx, 0] # La première colonne est 'file'
-        image_path = os.path.join(self.data_dir, file_name)
+        image_path = self._resolve_image_path(os.path.join(self.data_dir, file_name))
         
         # --- 2. Tenseur Label Multi-Label ---
         # On extrait la ligne de labels (de la colonne 1 jusqu'à la fin)
@@ -63,6 +80,9 @@ class OcularDataset(Dataset):
     Dataset personnalisé pour les rétinographies, gérant les labels multi-labels
     à partir d'un fichier CSV.
     """
+    # Common image extensions to try when the CSV filename has no extension
+    _IMG_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif')
+
     def __init__(self, csv_file: str, data_dir: str, transform: Compose):
         """
         :param csv_file: Chemin vers le fichier CSV contenant les noms de fichiers et les labels.
@@ -81,11 +101,27 @@ class OcularDataset(Dataset):
     def __len__(self) -> int:
         return len(self.data_frame)
 
+    @staticmethod
+    def _resolve_image_path(base_path: str, extensions=_IMG_EXTENSIONS) -> str:
+        """Return *base_path* as-is if it already exists (or already has a
+        recognised extension).  Otherwise try appending each extension in
+        *extensions* and return the first match.  Raises FileNotFoundError
+        when nothing is found."""
+        if os.path.isfile(base_path):
+            return base_path
+        for ext in extensions:
+            candidate = base_path + ext
+            if os.path.isfile(candidate):
+                return candidate
+        raise FileNotFoundError(
+            f"Image not found: {base_path} (also tried extensions {extensions})"
+        )
+
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         
         # --- 1. Chemin de l'Image ---
         file_name = self.data_frame.iloc[idx, 0] # La première colonne est 'file'
-        image_path = os.path.join(self.data_dir, file_name)
+        image_path = self._resolve_image_path(os.path.join(self.data_dir, file_name))
         
         # --- 2. Tenseur Label Multi-Label ---
         # On extrait la ligne de labels (de la colonne 1 jusqu'à la fin)

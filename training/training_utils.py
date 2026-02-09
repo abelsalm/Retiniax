@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 import json
 from sklearn.metrics import f1_score, accuracy_score
+from tqdm import tqdm
 
 
 # classes and functions--------------------------------------------------------------------------------------------------
@@ -228,7 +229,8 @@ def train_epoch(model, dataloader, criterion, optimizer, device='cuda', multi_h=
     total_loss = 0.0
     num_batches = 0
     
-    for i, batch in enumerate(dataloader):
+    pbar = tqdm(enumerate(dataloader), total=len(dataloader), desc="Training", leave=True)
+    for i, batch in pbar:
         # Extraire images et labels du batch
         if isinstance(batch, dict):
             images = batch['image']
@@ -260,6 +262,9 @@ def train_epoch(model, dataloader, criterion, optimizer, device='cuda', multi_h=
         # Accumuler la loss
         total_loss += loss.item()
         num_batches += 1
+
+        # Update progress bar with running average loss
+        pbar.set_postfix(loss=total_loss / num_batches)
     
     # Retourner la loss moyenne
     avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
