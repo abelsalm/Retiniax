@@ -60,15 +60,10 @@ class TruePositiveBCELoss(nn.Module):
             bce = F.binary_cross_entropy_with_logits(predictions, targets, reduction='none')  # [N, C]
         else:
             cw = self.class_weight.to(predictions.device)
-            print(f"predictions: {predictions.shape}")
-            print(f"targets: {targets.shape}")
-            print(f"predictions values: {predictions}")
-            print(f"targets values: {targets}")
             bce = F.binary_cross_entropy_with_logits(predictions, targets,
                                          weight=cw, reduction='none')  # [N, C]
         positive_mask = (targets == 1).float()
         bce = bce * positive_mask
-        print(f"bce: {bce}")
 
         # By zeroing predictions for TN, targets==0 entries will have zero loss (BCE(0,0)=0)
         # Average over ALL (so only TPs matter in the mean)
@@ -99,7 +94,6 @@ class TrueNegativeBCELoss(nn.Module):
                                          weight=cw, reduction='none')  # [N, C]
         negative_mask = (targets == 0).float()
         bce = bce * negative_mask
-        print(f"tn bce: {bce}")
 
         # By zeroing predictions for TN, targets==0 entries will have zero loss (BCE(0,0)=0)
         # Average over ALL (so only TPs matter in the mean)
