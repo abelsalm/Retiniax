@@ -15,6 +15,7 @@ from typing import Optional, Dict, Any
 import json
 from sklearn.metrics import f1_score, accuracy_score
 from tqdm import tqdm
+from torch.amp import autocast, GradScaler
 
 
 # classes and functions--------------------------------------------------------------------------------------------------
@@ -209,7 +210,8 @@ def _create_scheduler(optimizer, config: TrainingConfig, num_epochs: int):
 
 
 # function to train the model for an epoch given a dataloader, a criterion, a config, and a device--------------------------------------------------
-def train_epoch(model, dataloader, criterion, optimizer, device='cuda', multi_h=True):
+def train_epoch(model, dataloader, criterion, optimizer, device='cuda', multi_h=True,
+                scaler=None, use_amp=True, visualize_first_batch=False):
     """
     Fonction d'entraînement pour une époque.
     
@@ -219,12 +221,24 @@ def train_epoch(model, dataloader, criterion, optimizer, device='cuda', multi_h=
         criterion: Fonction de loss
         optimizer: Optimiseur PyTorch
         device: Device sur lequel entraîner ('cuda' ou 'cpu')
-        multi: Si True, classification multi-label (défaut: True)
         multi_h: Si True, architecture multi-head (défaut: True)
+        scaler: GradScaler for mixed precision (created automatically if None and use_amp=True)
+        use_amp: If True, use automatic mixed precision (float16) for faster GPU training
+        visualize_first_batch: If True, visualize first batch (causes GPU sync, slow)
     
     Returns:
         float: Loss moyenne d'entraînement sur l'époque
+        GradScaler: the scaler (pass it back on subsequent calls)
     """
+    # ── cuDNN benchmark: cache best conv algorithm for fixed input sizes ──
+    if device != 'cpu':
+        torch.backends.cudnn.benchmark = True
+    
+    # ── Create AMP scaler on first call ──
+    amp_enabled = use_amp and (device != 'cpu')
+    if amp_enabled and scaler is None:
+        scaler = GradScaler()
+    
     model.train()
     total_loss = 0.0
     num_batches = 0
@@ -240,24 +254,29 @@ def train_epoch(model, dataloader, criterion, optimizer, device='cuda', multi_h=
         else:
             raise ValueError("Batch doit être un dict avec 'image' et 'label' ou un tuple (images, labels)")
         
-        images = images.to(device)
-        labels = labels.to(device)
+        # non_blocking=True overlaps CPU→GPU transfer with computation when pin_memory is used
+        images = images.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
 
-        if i == 0:
+        if visualize_first_batch and i == 0:
             labels_for_viz = labels.clone()
             visualize_batch(images, labels_for_viz)
         
-        # Zero gradients
-        optimizer.zero_grad()
+        # Zero gradients — set_to_none=True is faster (avoids memset to 0)
+        optimizer.zero_grad(set_to_none=True)
         
-        # Calculer la loss
-        loss = _compute_loss(model, images, labels, criterion, multi_h)
-        
-        # Backward pass
-        loss.backward()
-        
-        # Optimizer step
-        optimizer.step()
+        # ── Forward pass with AMP (float16 for matmuls/convs, float32 for reductions) ──
+        if amp_enabled:
+            with autocast(device_type='cuda', dtype=torch.float16):
+                loss = _compute_loss(model, images, labels, criterion, multi_h)
+            # Backward with scaled loss to avoid float16 underflow
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss = _compute_loss(model, images, labels, criterion, multi_h)
+            loss.backward()
+            optimizer.step()
         
         # Accumuler la loss
         total_loss += loss.item()
@@ -268,7 +287,7 @@ def train_epoch(model, dataloader, criterion, optimizer, device='cuda', multi_h=
     
     # Retourner la loss moyenne
     avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
-    return avg_loss
+    return avg_loss, scaler
 
 
 # function to compute loss and potentially clip logits----------------------------------------------------------------------------------------------
