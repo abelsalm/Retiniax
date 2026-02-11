@@ -61,10 +61,7 @@ def optimize_per_class_temperature_f1(
     all_targets = []
     with torch.no_grad():
         for batch in dataloader:
-            if isinstance(batch, (list, tuple)) and len(batch) >= 2:
-                inputs, targets = batch[0], batch[1]
-            else:
-                raise ValueError("Dataloader must yield (inputs, targets).")
+            inputs, targets = batch['image'], batch['label']
 
             inputs = inputs.to(device)
             targets = targets.to(device)
@@ -180,10 +177,7 @@ def evaluate_with_temperatures(
 
     with torch.no_grad():
         for batch in dataloader:
-            if isinstance(batch, (list, tuple)) and len(batch) >= 2:
-                inputs, targets = batch[0], batch[1]
-            else:
-                raise ValueError("Dataloader must yield (inputs, targets).")
+            inputs, targets = batch['image'], batch['label']
 
             inputs = inputs.to(device)
             targets = targets.to(device)

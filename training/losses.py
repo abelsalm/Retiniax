@@ -14,7 +14,7 @@ import torch.nn.functional as F
 def true_positive_accuracy(predictions, targets):
     # only consider the accuracy on the true positive cases
     true_positives = (predictions == targets) & (targets == 1)
-    return true_positives.mean()/np.max(targets.sum(), 1)
+    return true_positives.mean()/targets.sum()
 
 # accuracy on the true negatives among our pathologies 
 # NUMPY VERSION

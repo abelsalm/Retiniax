@@ -356,7 +356,7 @@ monai_transform_sequence_test = Compose(
         Rand2DElasticd(keys=[img_key], spacing=(20, 80), magnitude_range=(2, 5), prob=0.7),
 
         # rand 2d elastic deformation
-        Rand2DElasticCenteredSquared(keys=[img_key], square_width_ratio=((2**0.5)/3.14159), spacing=(100, 200), magnitude_range=(10, 15), prob=0.7),
+        # Rand2DElasticCenteredSquared(keys=[img_key], square_width_ratio=((2**0.5)/3.14159), spacing=(100, 200), magnitude_range=(10, 15), prob=0.7),
         
         # gaussian noise
         # RandGaussianNoised(keys=[img_key], prob=0.4, mean=0.0, std=0.15),
