@@ -360,10 +360,8 @@ class CropToSquareD(MapTransform):
 # training transform sequence with data augmentation
 monai_transform_sequence = Compose(
     [
-        # load image
+        # ── 1. Load & format ──
         LoadImaged(keys=[img_key]),
-
-        # --- Pre-processing/Required Format Steps (Often placed first) ---
         EnsureChannelFirstD(keys=[img_key], channel_dim=-1),
 
         # normalize pixel values from 0-255 to 0-1
@@ -371,47 +369,27 @@ monai_transform_sequence = Compose(
 
         # crop to square
         CropToSquareD(keys=[img_key]),
-        
-        # horizontal flip
-        RandFlipd(keys=[img_key], prob=0.5, spatial_axis=1), # 0 for H-flip in (C, H, W)
 
-        # vertical flip
-        RandFlipd(keys=[img_key], prob=0.5, spatial_axis=0), # 0 for H-flip in (C, H, W)
-
-        # random rotation
-        RandRotated(keys=[img_key],range_x = 0.5, prob=1.0, padding_mode = 'border'),
-
-        # random sqrt transform
-        #RandLambdad(keys=[img_key], func=random_sqrt_transform, prob=0.6 ),
-
-        # random laplace filter
-        #RandLambdad(keys=[img_key], func=random_laplace_filter, prob=0.4 ),
-        
-        # rand 2d elastic deformation
-        Rand2DElasticd(keys=[img_key], spacing=(20, 80), magnitude_range=(2, 5), prob=0.7),
-
-        # rand 2d elastic deformation
-        Rand2DElasticCenteredSquared(keys=[img_key], square_width_ratio=((2**0.5)/3.14159), spacing=(100, 200), magnitude_range=(10, 15), prob=0.7),
-        
-        # gaussian noise
-        # RandGaussianNoised(keys=[img_key], prob=0.4, mean=0.0, std=0.15),
-
-        # gaussian sharpen
-        RandGaussianSharpend(keys=[img_key], prob=0.6, alpha=(0.1, 0.5)), # Alpha controls the strength
-        
-        # histogram nonlinear shift
-        # RandHistogramShiftd(keys=[img_key], prob=0.5, num_control_points=40),
-        
-        # randzoom (Randomly zooms the image)
-        RandZoomd(keys=[img_key], min_zoom=1.0, max_zoom=1.2, prob=0.5), 
-
-        # Masquer la zone hors du cercle central (fond d'œil)
-        MaskCircularRegiond(keys=[img_key]),
-
-        # resize
+        # ── 2. Resize EARLY so every augmentation runs on 384×384 ──
+        #    instead of full-resolution (e.g. 2000×2000) → ~27× fewer pixels
         Resized(keys=[img_key], spatial_size=(384, 384), mode="bilinear"),
         
-        # Ensure the final output is a PyTorch Tensor
+        # ── 3. Cheap augmentations ──
+        RandFlipd(keys=[img_key], prob=0.5, spatial_axis=1),
+        RandFlipd(keys=[img_key], prob=0.5, spatial_axis=0),
+        RandRotated(keys=[img_key], range_x=0.5, prob=1.0, padding_mode='border'),
+
+        # ── 4. Expensive augmentations (now on 384×384, not 2000×2000) ──
+        Rand2DElasticd(keys=[img_key], spacing=(20, 80), magnitude_range=(2, 5), prob=0.7),
+        Rand2DElasticCenteredSquared(keys=[img_key], square_width_ratio=((2**0.5)/3.14159), spacing=(100, 200), magnitude_range=(10, 15), prob=0.7),
+
+        RandGaussianSharpend(keys=[img_key], prob=0.6, alpha=(0.1, 0.5)),
+        RandZoomd(keys=[img_key], min_zoom=1.0, max_zoom=1.2, prob=0.5), 
+
+        # ── 5. Circular mask AFTER augmentations (cleans up rotation/elastic edges) ──
+        MaskCircularRegiond(keys=[img_key]),
+
+        # ── 6. Final tensor conversion ──
         ToTensorD(keys=[img_key])
     ]
 )
