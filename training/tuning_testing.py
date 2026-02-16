@@ -7,11 +7,38 @@ import torch.nn as nn
 import torch.nn.functional as F
 from losses import true_negative_accuracy, true_positive_accuracy, simple_accuracy
 from losses import TrueNegativeBCELoss, TruePositiveBCELoss, CrossEntropyLoss
+from tqdm import tqdm
+import time
 
-# ── Find optimal per-class probability factor to maximize F1 ──────────────
+# get the outputs of the model on the validation set only once 
+def get_outputs(model, dataloader, device='cuda'):
+    model.eval()
+
+    # all tensors, logits, probs and targets
+    all_probs = []
+    all_targets = []
+    all_logits = []
+    with torch.no_grad():
+        for batch in tqdm(dataloader, desc="Evaluating", leave=False):
+            inputs, targets = batch['image'], batch['label']
+            inputs = inputs.to(device)
+            logits = model(inputs)
+            if logits.dim() == 1:
+                logits = logits.view(-1, 1)
+            all_logits.append(logits)
+            all_probs.append(torch.sigmoid(logits).detach().cpu())
+            all_targets.append(targets.detach().cpu())
+
+    all_probs = torch.cat(all_probs, dim=0)      # (N, C)
+    all_targets = torch.cat(all_targets, dim=0)   # (N, C)
+    all_logits = torch.cat(all_logits, dim=0)
+
+    return all_probs, all_targets, all_logits
+
+# find optimal per-class probability factor to maximize F1 
 def optimize_per_class_factor_f1(
-    model,
-    dataloader,
+    all_probs,
+    all_targets,
     num_classes: int,
     device=None,
     min_factor: float = 0.5,
@@ -30,8 +57,8 @@ def optimize_per_class_factor_f1(
     you only need to store one scalar per class.
 
     Args:
-        model: PyTorch model returning logits of shape (N, num_classes).
-        dataloader: DataLoader yielding dicts with 'image' and 'label'.
+        all_probs: Tensor of shape (N, num_classes) containing the probabilities for each class.
+        all_targets: Tensor of shape (N, num_classes) containing the targets for each class.
         num_classes: Number of output classes.
         device: 'cuda', 'cpu', or None (auto).
         min_factor: Smallest factor to try  (0.5 → effective threshold 1.0).
@@ -42,41 +69,19 @@ def optimize_per_class_factor_f1(
         best_factors (torch.Tensor): shape (num_classes,)
         best_f1s     (torch.Tensor): shape (num_classes,)
     """
-    if device is None:
-        device = next(model.parameters()).device
-    else:
-        device = torch.device(device)
-
-    model.eval()
-
-    # ── 1. Collect all probabilities and targets ──
-    all_probs = []
-    all_targets = []
-    with torch.no_grad():
-        for batch in dataloader:
-            inputs, targets = batch['image'], batch['label']
-            inputs = inputs.to(device)
-            logits = model(inputs)
-            if logits.dim() == 1:
-                logits = logits.view(-1, 1)
-            all_probs.append(torch.sigmoid(logits).detach().cpu())
-            all_targets.append(targets.detach().cpu())
-
-    all_probs = torch.cat(all_probs, dim=0)      # (N, C)
-    all_targets = torch.cat(all_targets, dim=0)   # (N, C)
 
     if all_probs.shape[1] != num_classes:
         raise ValueError(
             f"Model output dim ({all_probs.shape[1]}) != num_classes ({num_classes})."
         )
 
-    # ── 2. Grid search per class ──
+    # grid search per class
     factor_grid = torch.linspace(min_factor, max_factor, steps=n_grid_points)
 
     best_factors = torch.ones(num_classes, dtype=torch.float32)
     best_f1s = torch.zeros(num_classes, dtype=torch.float32)
 
-    for c in range(num_classes):
+    for c in tqdm(range(num_classes), desc="Optimizing per-class F1"):
         probs_c = all_probs[:, c]
         targets_c = (all_targets[:, c] > 0.5).int()
 
@@ -101,7 +106,7 @@ def optimize_per_class_factor_f1(
         best_factors[c] = best_factor
         best_f1s[c] = best_f1
 
-    # ── 3. Print results ──
+    # print results
     for c in range(num_classes):
         eff_threshold = 0.5 / best_factors[c].item()
         print(f"Class {c:2d}: F1 = {best_f1s[c]:.4f},  factor = {best_factors[c]:.4f}  (≡ threshold {eff_threshold:.4f})")
@@ -111,95 +116,87 @@ def optimize_per_class_factor_f1(
     return best_factors, best_f1s
 
 
-# ── Evaluate with per-class probability factors ──────────────────────────
+# evaluate with per-class probability factors directly from logits
 def evaluate_with_factors(
-    model,
-    dataloader,
+    all_logits: torch.Tensor,
+    all_targets: torch.Tensor,
     num_classes: int,
     factors: torch.Tensor,
-    device=None,
     training_loss: nn.Module = None,
 ):
     """
-    Evaluate a model applying per-class multiplicative factors on the
-    probabilities, then thresholding at 0.5.
+    Evaluate a model by applying per-class multiplicative factors on the
+    probabilities (sigmoid(logit)), then thresholding at 0.5 after scaling.
 
     Computes:
       - TP / TN accuracy  (using factored predictions)
       - TP / TN BCE       (on raw logits, no factor — pure model quality)
-      - training_loss      (on raw logits, if provided)
+      - TP / TN BCE       (on logits after factor rescaling — to compare effect of rescaling)
+      - training_loss     (on raw logits, if provided)
 
     Args:
-        model: PyTorch model returning logits (N, num_classes).
-        dataloader: DataLoader yielding dicts with 'image' and 'label'.
+        all_logits: Tensor (N, num_classes), raw model logits on device.
+        all_targets: Tensor (N, num_classes), ground-truth binary.
         num_classes: Number of output classes.
-        factors: Tensor of shape (num_classes,) — per-class probability multipliers.
-        device: 'cuda', 'cpu', or None (auto).
+        factors: Tensor (num_classes,), scaling factors for probability per class.
         training_loss: Optional loss module to compute on raw logits.
 
     Returns:
-        training_loss_value, tp_acc, tn_acc, tp_bce, tn_bce
+        training_loss_value, tp_acc, tn_acc, tp_bce, tn_bce, tp_bce_rescaled, tn_bce_rescaled
     """
-    if device is None:
-        device = next(model.parameters()).device
-    else:
-        device = torch.device(device)
 
-    factors = factors.detach().float().view(1, -1).to(device)
-    if factors.shape[1] != num_classes:
-        raise ValueError(
-            f"factors has {factors.shape[1]} elements but num_classes={num_classes}."
-        )
+    start_time = time.time()
 
-    model.eval()
+    # Ensure tensors are on same device
+    device = all_logits.device
+    all_targets = all_targets.to(device)
+    factors = factors.to(device)
 
-    all_preds = []
-    all_targets = []
-    all_logits = []
+    # Compute probabilities from logits
+    probs = torch.sigmoid(all_logits)           # (N, C)
+    prob_factors = factors.view(1, -1)          # (1, C)
+    probs_scaled = probs * prob_factors         # (N, C)
+    preds_factored = (probs_scaled >= 0.5).long()
 
-    with torch.no_grad():
-        for batch in dataloader:
-            inputs, targets = batch['image'], batch['label']
-            inputs = inputs.to(device)
-            targets = targets.to(device)
-
-            logits = model(inputs)
-            if logits.dim() == 1:
-                logits = logits.view(-1, 1)
-
-            # Factor-scaled predictions (proba * factor >= 0.5)
-            probs = torch.sigmoid(logits)
-            preds = (probs * factors >= 0.5).int()
-
-            all_preds.append(preds.detach().cpu())
-            all_targets.append(targets.detach().cpu())
-            all_logits.append(logits.detach().cpu())
-
-    preds_np = torch.cat(all_preds, dim=0).numpy().astype(np.int32)
-    targets_np = torch.cat(all_targets, dim=0).numpy().astype(np.int32)
-    all_logits = torch.cat(all_logits, dim=0)
-    targets_torch = torch.cat(all_targets, dim=0).float()
+    targets_bin = (all_targets > 0.5).long()
+    
+    # Convert to numpy for accuracy metrics
+    preds_np = preds_factored.cpu().numpy()
+    targets_np = targets_bin.cpu().numpy()
 
     # ── Accuracy metrics (on factored predictions) ──
     tp_acc = float(true_positive_accuracy(preds_np, targets_np))
     tn_acc = float(true_negative_accuracy(preds_np, targets_np))
 
-    # ── BCE metrics (on raw logits, no factor — measures pure model quality) ──
+    # ── BCE metrics (on raw logits, no factor — pure model quality) ──
     tp_loss_fn = TruePositiveBCELoss()
     tn_loss_fn = TrueNegativeBCELoss()
-    tp_bce = float(tp_loss_fn(all_logits, targets_torch).item())
-    tn_bce = float(tn_loss_fn(all_logits, targets_torch).item())
+    tp_bce = float(tp_loss_fn(all_logits, all_targets).item())
+    tn_bce = float(tn_loss_fn(all_logits, all_targets).item())
+
+    # ── BCE metrics (on logits after factor rescaling to compare with pure) ──
+    # To apply factor scaling to probabilities, transform threshold so: sigmoid(f*logit)=0.5 ⇒ logit=logit_thr, f*sigmoid(logit_thr)=0.5
+    # But for BCE, we simply use logits' effect through scaling logit before sigmoid
+    logits_scaled = all_logits + factors.log().view(1, -1)
+    tp_bce_rescaled = float(tp_loss_fn(logits_scaled, all_targets).item())
+    tn_bce_rescaled = float(tn_loss_fn(logits_scaled, all_targets).item())
 
     # ── Training loss (on raw logits, if provided) ──
     if training_loss is not None:
-        training_loss_value = float(training_loss(all_logits, targets_torch).item())
+        training_loss_value = float(training_loss(all_logits, all_targets).item())
     else:
         training_loss_value = 0.0
 
     print(f"Training loss on val: {training_loss_value:.4f}")
-    print(f"TP accuracy:  {tp_acc:.4f}")
-    print(f"TN accuracy:  {tn_acc:.4f}")
-    print(f"TP BCE (raw): {tp_bce:.4f}")
-    print(f"TN BCE (raw): {tn_bce:.4f}")
+    print(f"TP accuracy (factored):  {tp_acc:.4f}")
+    print(f"TN accuracy (factored):  {tn_acc:.4f}")
+    print(f"TP BCE (raw logits):     {tp_bce:.4f}")
+    print(f"TN BCE (raw logits):     {tn_bce:.4f}")
+    print(f"TP BCE (factored logit): {tp_bce_rescaled:.4f}")
+    print(f"TN BCE (factored logit): {tn_bce_rescaled:.4f}")
 
-    return training_loss_value, tp_acc, tn_acc, tp_bce, tn_bce
+    end_time = time.time()
+    print(f"Time taken to compute all metrics: {end_time - start_time:.2f} seconds")
+
+    return training_loss_value, tp_acc, tn_acc, tp_bce, tn_bce, tp_bce_rescaled, tn_bce_rescaled
+
