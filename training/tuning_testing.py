@@ -40,7 +40,6 @@ def optimize_per_class_factor_f1(
     all_probs,
     all_targets,
     num_classes: int,
-    device=None,
     min_factor: float = 0.5,
     max_factor: float = 10.0,
     n_grid_points: int = 200,
@@ -60,7 +59,6 @@ def optimize_per_class_factor_f1(
         all_probs: Tensor of shape (N, num_classes) containing the probabilities for each class.
         all_targets: Tensor of shape (N, num_classes) containing the targets for each class.
         num_classes: Number of output classes.
-        device: 'cuda', 'cpu', or None (auto).
         min_factor: Smallest factor to try  (0.5 → effective threshold 1.0).
         max_factor: Largest  factor to try  (10  → effective threshold 0.05).
         n_grid_points: Granularity of the 1-D grid search.
@@ -174,12 +172,14 @@ def evaluate_with_factors(
     tp_bce = float(tp_loss_fn(all_logits, all_targets).item())
     tn_bce = float(tn_loss_fn(all_logits, all_targets).item())
 
-    # ── BCE metrics (on logits after factor rescaling to compare with pure) ──
-    # To apply factor scaling to probabilities, transform threshold so: sigmoid(f*logit)=0.5 ⇒ logit=logit_thr, f*sigmoid(logit_thr)=0.5
-    # But for BCE, we simply use logits' effect through scaling logit before sigmoid
-    logits_scaled = all_logits + factors.log().view(1, -1)
-    tp_bce_rescaled = float(tp_loss_fn(logits_scaled, all_targets).item())
-    tn_bce_rescaled = float(tn_loss_fn(logits_scaled, all_targets).item())
+    # ── BCE metrics (on logits after probabilities are scaled by factor, to compare with pure) ──
+    # Factors are applied on probabilities (p = sigmoid(logit) * factor).
+    # We want to construct logits_rescaled = logit(p_factored/(1-p_factored)), with p_factored = sigmoid(logit) * factor, clipped to (0,1)
+    probs = torch.sigmoid(all_logits) * factors.view(1, -1)
+    probs = torch.clamp(probs, min=1e-7, max=1-1e-7)  # avoid log(0) for BP
+    logits_rescaled = torch.log(probs / (1 - probs))
+    tp_bce_rescaled = float(tp_loss_fn(logits_rescaled, all_targets).item())
+    tn_bce_rescaled = float(tn_loss_fn(logits_rescaled, all_targets).item())
 
     # ── Training loss (on raw logits, if provided) ──
     if training_loss is not None:
