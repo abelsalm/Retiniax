@@ -380,8 +380,8 @@ monai_transform_sequence = Compose(
         RandRotated(keys=[img_key], range_x=0.5, prob=1.0, padding_mode='border'),
 
         # ── 4. Expensive augmentations (now on 384×384, not 2000×2000) ──
-        Rand2DElasticd(keys=[img_key], spacing=(20, 80), magnitude_range=(2, 5), prob=0.7),
-        Rand2DElasticCenteredSquared(keys=[img_key], square_width_ratio=((2**0.5)/3.14159), spacing=(100, 200), magnitude_range=(10, 15), prob=0.7),
+        # Rand2DElasticd(keys=[img_key], spacing=(2, 10), magnitude_range=(2, 5), prob=0.7),
+        # Rand2DElasticCenteredSquared(keys=[img_key], square_width_ratio=((1.5**0.5)/3.14159), spacing=(10, 20), magnitude_range=(10, 15), prob=0.7),
 
         RandGaussianSharpend(keys=[img_key], prob=0.6, alpha=(0.1, 0.5)),
         RandZoomd(keys=[img_key], min_zoom=1.0, max_zoom=1.2, prob=0.5), 
