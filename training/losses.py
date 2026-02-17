@@ -9,21 +9,23 @@ import torch.nn.functional as F
 
 ### BENCHMARK LOSSES ###--------------------------------------------------------------------------------
 
-# accuracy on the true positives among our pathologies 
-# NUMPY VERSION
+# accuracy on the true positives among our pathologies (= recall / sensitivity)
+# NUMPY VERSION — "of all actual positives, how many did we predict as 1?"
 def true_positive_accuracy(predictions, targets):
-    # only consider the accuracy on the true positive cases
-    true_positives = (predictions == targets) & (targets == 1)
-    return true_positives.mean()/targets.sum()
+    positive_mask = (targets == 1)
+    n_positives = positive_mask.sum()
+    if n_positives == 0:
+        return 0.0
+    return float((predictions[positive_mask] == 1).sum()) / float(n_positives)
 
-# accuracy on the true negatives among our pathologies 
-# NUMPY VERSION
+# accuracy on the true negatives among our pathologies (= specificity)
+# NUMPY VERSION — "of all actual negatives, how many did we predict as 0?"
 def true_negative_accuracy(predictions, targets):
-    # only consider the accuracy on the true negative cases
-    true_negatives = (predictions == targets) & (targets == 0)
-    length_of_targets = targets.shape[1]
-    n_tn = np.sum(np.ones(length_of_targets) - targets)
-    return true_negatives.mean()/n_tn
+    negative_mask = (targets == 0)
+    n_negatives = negative_mask.sum()
+    if n_negatives == 0:
+        return 0.0
+    return float((predictions[negative_mask] == 0).sum()) / float(n_negatives)
 
 # simple accuracy, for the binary classification task
 # NUMPY VERSION

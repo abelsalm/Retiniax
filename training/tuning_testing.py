@@ -25,7 +25,7 @@ def get_outputs(model, dataloader, device='cuda'):
             logits = model(inputs)
             if logits.dim() == 1:
                 logits = logits.view(-1, 1)
-            all_logits.append(logits)
+            all_logits.append(logits.detach().cpu())
             all_probs.append(torch.sigmoid(logits).detach().cpu())
             all_targets.append(targets.detach().cpu())
 
@@ -40,41 +40,39 @@ def optimize_per_class_factor_f1(
     all_probs,
     all_targets,
     num_classes: int,
-    min_factor: float = 0.5,
-    max_factor: float = 10.0,
-    n_grid_points: int = 200,
+    min_threshold: float = 0.01,
+    max_threshold: float = 0.99,
+    n_grid_points: int = 64,
 ):
     """
-    For each class independently, find the multiplicative factor f* such that
+    For each class independently, find the optimal decision threshold t*
+    that maximises the per-class F1 score. The result is returned as a
+    multiplicative factor  f* = 0.5 / t*  so that:
 
-        preds = (sigmoid(logit) * f  >=  0.5)
+        preds = (sigmoid(logit) * f*  >=  0.5)   ⟺   sigmoid(logit) >= t*
 
-    maximises the per-class F1 score on the given dataset.
-
-    This is strictly equivalent to finding the optimal decision threshold
-    t* = 0.5 / f*  per class, but keeps the threshold fixed at 0.5 so
-    you only need to store one scalar per class.
+    The grid search is performed **in threshold space** (linearly spaced)
+    to guarantee uniform resolution over the full range.
 
     Args:
-        all_probs: Tensor of shape (N, num_classes) containing the probabilities for each class.
-        all_targets: Tensor of shape (N, num_classes) containing the targets for each class.
-        num_classes: Number of output classes.
-        min_factor: Smallest factor to try  (0.5 → effective threshold 1.0).
-        max_factor: Largest  factor to try  (10  → effective threshold 0.05).
-        n_grid_points: Granularity of the 1-D grid search.
+        all_probs:      Tensor (N, num_classes), probabilities (sigmoid of logits).
+        all_targets:    Tensor (N, num_classes), ground-truth binary labels.
+        num_classes:    Number of output classes.
+        min_threshold:  Lowest threshold to try  (→ very aggressive, many positives).
+        max_threshold:  Highest threshold to try  (→ very conservative, few positives).
+        n_grid_points:  Number of thresholds to evaluate per class.
 
     Returns:
-        best_factors (torch.Tensor): shape (num_classes,)
-        best_f1s     (torch.Tensor): shape (num_classes,)
+        best_factors (torch.Tensor): shape (num_classes,) — factor = 0.5 / threshold.
+        best_f1s     (torch.Tensor): shape (num_classes,).
     """
-
     if all_probs.shape[1] != num_classes:
         raise ValueError(
             f"Model output dim ({all_probs.shape[1]}) != num_classes ({num_classes})."
         )
 
-    # grid search per class
-    factor_grid = torch.linspace(min_factor, max_factor, steps=n_grid_points)
+    # ── Grid in THRESHOLD space (uniform coverage) ──
+    threshold_grid = torch.linspace(min_threshold, max_threshold, steps=n_grid_points)
 
     best_factors = torch.ones(num_classes, dtype=torch.float32)
     best_f1s = torch.zeros(num_classes, dtype=torch.float32)
@@ -83,11 +81,14 @@ def optimize_per_class_factor_f1(
         probs_c = all_probs[:, c]
         targets_c = (all_targets[:, c] > 0.5).int()
 
-        best_f1 = -1.0
-        best_factor = 1.0
+        n_pos = (targets_c == 1).sum().item()
+        n_neg = (targets_c == 0).sum().item()
 
-        for factor in factor_grid:
-            preds = (probs_c * factor >= 0.5).int()
+        best_f1 = -1.0
+        best_thr = 0.5
+
+        for thr in threshold_grid:
+            preds = (probs_c >= thr).int()
 
             tp = ((preds == 1) & (targets_c == 1)).sum().item()
             fp = ((preds == 1) & (targets_c == 0)).sum().item()
@@ -99,15 +100,25 @@ def optimize_per_class_factor_f1(
 
             if f1 > best_f1:
                 best_f1 = f1
-                best_factor = factor.item()
+                best_thr = thr.item()
 
-        best_factors[c] = best_factor
+        best_factors[c] = 0.5 / best_thr
         best_f1s[c] = best_f1
 
-    # print results
+    # ── Print results with diagnostic info ──
+    print(f"\n{'Class':>6}  {'Prev%':>6}  {'Thresh':>7}  {'Factor':>7}  {'F1':>6}  {'Prob μ±σ':>12}")
+    print("─" * 60)
     for c in range(num_classes):
-        eff_threshold = 0.5 / best_factors[c].item()
-        print(f"Class {c:2d}: F1 = {best_f1s[c]:.4f},  factor = {best_factors[c]:.4f}  (≡ threshold {eff_threshold:.4f})")
+        targets_c = (all_targets[:, c] > 0.5).float()
+        probs_c = all_probs[:, c]
+        prev = targets_c.mean().item() * 100
+        p_mu = probs_c.mean().item()
+        p_std = probs_c.std().item()
+        thr = 0.5 / best_factors[c].item()
+        print(
+            f"{c:>6d}  {prev:>5.1f}%  {thr:>7.4f}  {best_factors[c].item():>7.4f}  "
+            f"{best_f1s[c].item():>5.4f}  {p_mu:.3f}±{p_std:.3f}"
+        )
 
     print("\nOptimal per-class factor vector:")
     print(best_factors)
