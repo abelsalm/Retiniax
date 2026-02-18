@@ -16,6 +16,7 @@ def true_positive_accuracy(predictions, targets):
     n_positives = positive_mask.sum()
     if n_positives == 0:
         return 0.0
+        print("No positives found in targets, returning 0.0 for true positive accuracy")
     return float((predictions[positive_mask] == 1).sum()) / float(n_positives)
 
 # accuracy on the true negatives among our pathologies (= specificity)
@@ -25,6 +26,7 @@ def true_negative_accuracy(predictions, targets):
     n_negatives = negative_mask.sum()
     if n_negatives == 0:
         return 0.0
+        print("No negatives found in targets, returning 0.0 for true negative accuracy")
     return float((predictions[negative_mask] == 0).sum()) / float(n_negatives)
 
 # simple accuracy, for the binary classification task
