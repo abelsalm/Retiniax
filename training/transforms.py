@@ -407,12 +407,12 @@ val_transform_sequence = Compose(
 
         # crop to square
         CropToSquareD(keys=[img_key]),
-        
-        # Masquer la zone hors du cercle central (fond d'œil)
-        MaskCircularRegiond(keys=[img_key]),
 
         # resize
         Resized(keys=[img_key], spatial_size=(384, 384), mode="bilinear"),
+
+        # Masquer la zone hors du cercle central (fond d'œil)
+        MaskCircularRegiond(keys=[img_key]),
         
         # Ensure the final output is a PyTorch Tensor
         ToTensorD(keys=[img_key])
