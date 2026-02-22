@@ -16,6 +16,7 @@ from training_utils import train_model, evaluate_model, plot_losses, CLASSES, tr
 from torch.utils.data import DataLoader
 from transforms import monai_transform_sequence, val_transform_sequence
 from ocular_dataset import OcularDataset
+from transforms import image_size
 
 
 ## train and val with different transforms 
@@ -34,7 +35,7 @@ val_dataset = OcularDataset(
         transform=val_transform_sequence,
     )
 
-BS = 32
+BS = 8
 
 train_loader = DataLoader(
         train_dataset,
@@ -56,8 +57,8 @@ val_loader = DataLoader(
         prefetch_factor=4,         # ← prefetch 4 batches per worker
     )
 
-model = "maxvit_tiny_tf_384.in1k"
-drop_rate = 0.05
+model = "inception_next_base.sail_in1k_384"
+drop_rate = 0
 
 # backbone
 backbone = timm.create_model(model, in_chans=3, pretrained=False, num_classes=0, drop_path_rate=drop_rate)
@@ -69,15 +70,15 @@ model = DeepClassifier(encoder=backbone, n_classes=14)
 torch.backends.cudnn.benchmark = True
 
 # ── Criterion ──
-criterion = CombinedBCELoss(w_tp=3.0, w_tn=0.5, class_weight_tp=weights, class_weight_tn=None)
+criterion = CombinedBCELoss(w_tp=4.0, w_tn=0.5, class_weight_tp=weights, class_weight_tn=None)
 
 # ── Hyper-parameters ──
 DEVICE        = "cuda" if torch.cuda.is_available() else "cpu"
-FROZEN_EPOCHS =  2     # phase 1: encoder frozen, only head learns
+FROZEN_EPOCHS =  4     # phase 1: encoder frozen, only head learns
 EPOCHS        = 100     # phase 2: everything unfrozen
 LR_FROZEN     = 1e-4   # higher LR is fine when only head trains (fewer params)
 LR            = 2e-5
-WD            = 1e-4
+WD            = 1e-6
 
 model.to(DEVICE)
 
@@ -86,9 +87,9 @@ scaler = None  # GradScaler will be auto-created on first epoch
 
 wandb.init(
     project="retiniax-training",
-    name=f"{model}_4",
+    name= "inception_next_base_5",
     config={
-        "backbone":        model,
+        "backbone":        "inception_next_base.sail_in1k_384",
         "drop_rate":       drop_rate,
         "n_classes":   14,
         "batch_size":  BS,
@@ -97,7 +98,7 @@ wandb.init(
         "epochs":          EPOCHS,
         "lr":              LR,
         "weight_decay":    WD,
-        "criterion":       "CombinedBCELoss, w_tp=3.0, w_tn=0.5, class_weight_tp=weights, class_weight_tn=None",
+        "criterion":       "CombinedBCELoss, w_tp=4.0, w_tn=0.5, class_weight_tp=weights, class_weight_tn=None",
         "optimizer":       "AdamW",
         "scheduler":       "ReduceLROnPlateau",
         "mixed_precision": True,
@@ -152,6 +153,7 @@ for epoch in range(FROZEN_EPOCHS):
         f"BCE-dot-rescaled: {dot_rescaled_bce:.4f} | "
         f"F1: {mean_f1:.4f} | "
         f"LR: {current_lr:.2e}"
+        f"Image size: {image_size}"
     )
 
     # ── Log everything to wandb ──

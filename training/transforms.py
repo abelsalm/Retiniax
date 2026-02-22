@@ -24,6 +24,8 @@ from monai.utils import set_determinism
 import scipy.ndimage as ndi
 from typing import Dict, Any
 
+image_size = (384, 384)
+
 # Fix for OverflowError: Python integer 4294967296 out of bounds for uint32
 # This is a known issue with MONAI and NumPy version incompatibility
 # Monkey-patch the get_seed function to return a safe value
@@ -372,7 +374,7 @@ monai_transform_sequence = Compose(
 
         # ── 2. Resize EARLY so every augmentation runs on 384×384 ──
         #    instead of full-resolution (e.g. 2000×2000) → ~27× fewer pixels
-        Resized(keys=[img_key], spatial_size=(384, 384), mode="bilinear"),
+        Resized(keys=[img_key], spatial_size=image_size, mode="bilinear"),
         
         # ── 3. Cheap augmentations ──
         RandFlipd(keys=[img_key], prob=0.5, spatial_axis=1),
@@ -409,7 +411,7 @@ val_transform_sequence = Compose(
         CropToSquareD(keys=[img_key]),
 
         # resize
-        Resized(keys=[img_key], spatial_size=(384, 384), mode="bilinear"),
+        Resized(keys=[img_key], spatial_size=image_size, mode="bilinear"),
 
         # Masquer la zone hors du cercle central (fond d'œil)
         MaskCircularRegiond(keys=[img_key]),
