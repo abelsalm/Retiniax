@@ -35,7 +35,7 @@ val_dataset = OcularDataset(
         transform=val_transform_sequence,
     )
 
-BS = 8
+BS = 32
 
 train_loader = DataLoader(
         train_dataset,
