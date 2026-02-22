@@ -57,7 +57,7 @@ val_loader = DataLoader(
         prefetch_factor=4,         # ← prefetch 4 batches per worker
     )
 
-model = "inception_next_base.sail_in1k_384"
+model = "inception_next_small.sail_in1k"
 drop_rate = 0
 
 # backbone
@@ -87,9 +87,9 @@ scaler = None  # GradScaler will be auto-created on first epoch
 
 wandb.init(
     project="retiniax-training",
-    name= "inception_next_base_5",
+    name= "inception_next_small_5",
     config={
-        "backbone":        "inception_next_base.sail_in1k_384",
+        "backbone":        "inception_next_small.sail_in1k",
         "drop_rate":       drop_rate,
         "n_classes":   14,
         "batch_size":  BS,
