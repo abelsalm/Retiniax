@@ -57,7 +57,7 @@ val_loader = DataLoader(
         prefetch_factor=4,         # ← prefetch 4 batches per worker
     )
 
-model = "inception_next_small.sail_in1k"
+model = "inception_next_base.sail_in1k_384"
 drop_rate = 0
 
 # backbone
@@ -78,7 +78,7 @@ FROZEN_EPOCHS =  4     # phase 1: encoder frozen, only head learns
 EPOCHS        = 100     # phase 2: everything unfrozen
 LR_FROZEN     = 1e-4   # higher LR is fine when only head trains (fewer params)
 LR            = 2e-5
-WD            = 1e-6
+WD            = 1e-4
 
 model.to(DEVICE)
 
@@ -87,9 +87,9 @@ scaler = None  # GradScaler will be auto-created on first epoch
 
 wandb.init(
     project="retiniax-training",
-    name= "inception_next_small_5",
+    name= "inception_next_base_6",
     config={
-        "backbone":        "inception_next_small.sail_in1k",
+        "backbone":        "inception_next_base.sail_in1k_384",
         "drop_rate":       drop_rate,
         "n_classes":   14,
         "batch_size":  BS,
