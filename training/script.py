@@ -57,7 +57,7 @@ val_loader = DataLoader(
         prefetch_factor=4,         # ← prefetch 4 batches per worker
     )
 
-model = "inception_next_small.sail_in1k"
+model = "inception_next_base.sail_in1k_384"
 drop_rate = 0
 
 # backbone
@@ -75,7 +75,7 @@ criterion = CombinedBCELoss(w_tp=4.0, w_tn=0.5, class_weight_tp=weights, class_w
 # ── Hyper-parameters ──
 DEVICE        = "cuda" if torch.cuda.is_available() else "cpu"
 FROZEN_EPOCHS =  4     # phase 1: encoder frozen, only head learns
-EPOCHS        = 100     # phase 2: everything unfrozen
+EPOCHS        = 90     # phase 2: everything unfrozen
 LR_FROZEN     = 1e-4   # higher LR is fine when only head trains (fewer params)
 LR            = 2e-5
 WD            = 5e-5
@@ -87,9 +87,9 @@ scaler = None  # GradScaler will be auto-created on first epoch
 
 wandb.init(
     project="retiniax-training",
-    name= "inception_next_small_5",
+    name= "inception_next_base_7",
     config={
-        "backbone":        "inception_next_small.sail_in1k",
+        "backbone":        "inception_next_base.sail_in1k_384",
         "drop_rate":       drop_rate,
         "n_classes":   14,
         "batch_size":  BS,
@@ -100,7 +100,7 @@ wandb.init(
         "weight_decay":    WD,
         "criterion":       "CombinedBCELoss, w_tp=4.0, w_tn=0.5, class_weight_tp=weights, class_weight_tn=None",
         "optimizer":       "AdamW",
-        "scheduler":       "ReduceLROnPlateau",
+        "scheduler":       "CosineAnnealingLR, ConstantLR, SequentialLR with 2/3 of the epochs 2/3 on cosine set to decrease to 1/10 of the initial LR",
         "mixed_precision": True,
     },
 )
@@ -171,6 +171,7 @@ for epoch in range(FROZEN_EPOCHS):
         "tn_bce_rescaled":     tn_bce_rsc,
         "dot_bce":     dot_bce,
         "dot_bce_rescaled":     dot_rescaled_bce,
+        "lr":                  current_lr,
     })
 
 
@@ -185,9 +186,9 @@ for param in model.encoder.parameters():
 
 # New optimizer & scheduler for ALL parameters
 optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=WD)
-scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-    optimizer, mode="min", factor=0.5, patience=3
-)
+scheduler1 = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=2*EPOCHS/3, eta_min=LR/10)
+scheduler2 = optim.lr_scheduler.ConstantLR(optimizer, factor=0.1, total_iters=EPOCHS/3)
+scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, [scheduler1, scheduler2], [2*EPOCHS/3, EPOCHS])
 # Reset scaler (fresh start for the new optimizer)
 scaler = None
 
@@ -240,6 +241,7 @@ for epoch in range(EPOCHS):
         "tn_bce_rescaled":     tn_bce_rsc,
         "dot_bce":     dot_bce,
         "dot_bce_rescaled":     dot_rescaled_bce,
+        "lr":                  current_lr,
     })
 
 
