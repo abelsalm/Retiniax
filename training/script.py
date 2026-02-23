@@ -78,7 +78,7 @@ FROZEN_EPOCHS =  4     # phase 1: encoder frozen, only head learns
 EPOCHS        = 90     # phase 2: everything unfrozen
 LR_FROZEN     = 1e-4   # higher LR is fine when only head trains (fewer params)
 LR            = 2e-5
-WD            = 5e-5
+WD            = 8e-5
 
 model.to(DEVICE)
 
@@ -186,9 +186,9 @@ for param in model.encoder.parameters():
 
 # New optimizer & scheduler for ALL parameters
 optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=WD)
-scheduler1 = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=2*EPOCHS/3, eta_min=LR/10)
-scheduler2 = optim.lr_scheduler.ConstantLR(optimizer, factor=0.1, total_iters=EPOCHS/3)
-scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, [scheduler1, scheduler2], [2*EPOCHS/3, EPOCHS])
+scheduler1 = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=int(2*EPOCHS/3), eta_min=LR/10)
+scheduler2 = optim.lr_scheduler.ConstantLR(optimizer, factor=0.1, total_iters=EPOCHS-int(2*EPOCHS/3))
+scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, [scheduler1, scheduler2], [int(2*EPOCHS/3)])
 # Reset scaler (fresh start for the new optimizer)
 scaler = None
 
