@@ -211,7 +211,7 @@ for epoch in range(EPOCHS):
     dot_bce = tp_bce*tn_bce
     dot_rescaled_bce = tp_bce_rsc*tn_bce_rsc
     dot_acc = tp_acc*tn_acc
-    scheduler.step()
+    scheduler.step(val_loss)
     current_lr = optimizer.param_groups[0]["lr"]
 
     print(
