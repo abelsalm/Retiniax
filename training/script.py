@@ -61,7 +61,7 @@ model = "inception_next_base.sail_in1k_384"
 drop_rate = 0
 
 # backbone
-backbone = timm.create_model(model, in_chans=3, pretrained=False, num_classes=0, drop_path_rate=drop_rate)
+backbone = timm.create_model(model, in_chans=3, pretrained=True, num_classes=0, drop_path_rate=drop_rate)
 
 # wrapper
 model = DeepClassifier(encoder=backbone, n_classes=14)

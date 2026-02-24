@@ -177,7 +177,7 @@ for epoch in range(FROZEN_EPOCHS):
 
 # UNFROZEN PHASE
 print("\n" + "=" * 60)
-print(f"Encoder UNFROZEN fine-tuning everything for {EPOCHS} epochs")
+print(f"Encoder UNFROZEN fine-tuning with BCE loss everything for {EPOCHS} epochs")
 print("=" * 60)
 
 # Unfreeze encoder
@@ -192,7 +192,7 @@ scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, [scheduler1, schedu
 # Reset scaler (fresh start for the new optimizer)
 scaler = None
 
-for epoch in range(EPOCHS):
+for epoch in range(int(EPOCHS/2)):
     train_loss, scaler = train_epoch(
         model, train_loader, criterion, optimizer,
         device=DEVICE, multi_h=False,
@@ -211,7 +211,7 @@ for epoch in range(EPOCHS):
     dot_bce = tp_bce*tn_bce
     dot_rescaled_bce = tp_bce_rsc*tn_bce_rsc
     dot_acc = tp_acc*tn_acc
-    scheduler.step(val_loss)
+    scheduler.step()
     current_lr = optimizer.param_groups[0]["lr"]
 
     print(
@@ -244,7 +244,70 @@ for epoch in range(EPOCHS):
         "lr":                  current_lr,
     })
 
+print("\n" + "=" * 60)
+print(f"Encoder UNFROZEN fine-tuning with AsymmetricLossMultiLabel loss everything for {EPOCHS} epochs")
+print("=" * 60)
 
+# New optimizer & scheduler for ALL parameters
+optimizer2 = optim.AdamW(model.parameters(), lr=LR, weight_decay=WD)
+criterion2 = AsymmetricLossMultiLabel()
+scheduler_warmup = optim.lr_scheduler.LinearLR(optimizer2, start_factor=0.1, end_factor=1.0, total_iters=4)
+scheduler_cosine = optim.lr_scheduler.CosineAnnealingLR(optimizer2, T_max=int(EPOCHS/2), eta_min=LR/10)
+scheduler2 = torch.optim.lr_scheduler.SequentialLR(optimizer2, [scheduler_warmup, scheduler_cosine], [4])
+# Reset scaler (fresh start for the new optimizer)
+scaler = None
+
+for epoch in range(int(EPOCHS/2) +4):
+    train_loss, scaler = train_epoch(
+        model, train_loader, criterion2, optimizer2,
+        device=DEVICE, multi_h=False,
+        scaler=scaler, use_amp=True,
+    )
+    train_losses.append(train_loss)
+
+    # Benchmark evaluation
+    all_probs, all_targets, all_logits = get_outputs(model, val_loader, device=DEVICE)
+    factors, f1s = optimize_per_class_factor_f1(all_probs, all_targets, num_classes=14)
+    val_loss, tp_acc, tn_acc, tp_bce, tn_bce, tp_bce_rsc, tn_bce_rsc = evaluate_with_factors(
+        all_logits, all_targets, num_classes=14, factors=factors, training_loss=criterion
+    )
+    val_losses.append(val_loss)
+    mean_f1 = f1s.mean()
+    dot_bce = tp_bce*tn_bce
+    dot_rescaled_bce = tp_bce_rsc*tn_bce_rsc
+    dot_acc = tp_acc*tn_acc
+    scheduler2.step()
+    current_lr = optimizer2.param_groups[0]["lr"]
+
+    print(
+        f"Epoch {epoch+1 + int(EPOCHS/2)}/{EPOCHS} | "
+        f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | "
+        f"TP-Acc: {tp_acc:.4f} | TN-Acc: {tn_acc:.4f} | "
+        f"TP-BCE: {tp_bce:.4f} | TN-BCE: {tn_bce:.4f} | "
+        f"TP-BCE-rsc: {tp_bce_rsc:.4f} | TN-BCE-rsc: {tn_bce_rsc:.4f} | "
+        f"BCE-dot: {dot_bce:.4f} | "
+        f"BCE-dot-rescaled: {dot_rescaled_bce:.4f} | "
+        f"F1: {mean_f1:.4f} | "
+        f"LR: {current_lr:.2e}"
+    )
+
+    # ── Log everything to wandb ──
+    wandb.log({
+        "epoch":               epoch + 1 + int(EPOCHS/2),
+        "train/loss":          train_loss,
+        "val/loss":            val_loss,
+        "mean_f1":             mean_f1,
+        "dot_acc":             dot_acc,
+        "tp_acc":              tp_acc,
+        "tn_acc":              tn_acc,
+        "tp_bce":              tp_bce,
+        "tn_bce":              tn_bce,
+        "tp_bce_rescaled":     tp_bce_rsc,
+        "tn_bce_rescaled":     tn_bce_rsc,
+        "dot_bce":     dot_bce,
+        "dot_bce_rescaled":     dot_rescaled_bce,
+        "lr":                  current_lr,
+    })
 
 
 wandb.finish()
