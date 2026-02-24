@@ -61,7 +61,7 @@ model = "inception_next_base.sail_in1k_384"
 drop_rate = 0
 
 # backbone
-backbone = timm.create_model(model, in_chans=3, pretrained=False, num_classes=0, drop_path_rate=drop_rate)
+backbone = timm.create_model(model, in_chans=3, pretrained=True, num_classes=0, drop_path_rate=drop_rate)
 
 # wrapper
 model = DeepClassifier(encoder=backbone, n_classes=14)
@@ -75,7 +75,7 @@ criterion = CombinedBCELoss(w_tp=4.0, w_tn=0.5, class_weight_tp=weights, class_w
 # ── Hyper-parameters ──
 DEVICE        = "cuda" if torch.cuda.is_available() else "cpu"
 FROZEN_EPOCHS =  4     # phase 1: encoder frozen, only head learns
-EPOCHS        = 90     # phase 2: everything unfrozen
+EPOCHS        = 100     # phase 2: everything unfrozen
 LR_FROZEN     = 1e-4   # higher LR is fine when only head trains (fewer params)
 LR            = 2e-5
 WD            = 8e-5
@@ -87,9 +87,9 @@ scaler = None  # GradScaler will be auto-created on first epoch
 
 wandb.init(
     project="retiniax-training",
-    name= "inception_next_base_7",
+    name= "inception_next_base_loss_switch_1",
     config={
-        "backbone":        "inception_next_base.sail_in1k_384",
+        "backbone":        "inception_next_base.sail_in1k_384, pretrained=True",
         "drop_rate":       drop_rate,
         "n_classes":   14,
         "batch_size":  BS,
@@ -186,9 +186,7 @@ for param in model.encoder.parameters():
 
 # New optimizer & scheduler for ALL parameters
 optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=WD)
-scheduler1 = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=int(2*EPOCHS/3), eta_min=LR/10)
-scheduler2 = optim.lr_scheduler.ConstantLR(optimizer, factor=0.1, total_iters=EPOCHS-int(2*EPOCHS/3))
-scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, [scheduler1, scheduler2], [int(2*EPOCHS/3)])
+scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=int(EPOCHS/2), eta_min=LR/10)
 # Reset scaler (fresh start for the new optimizer)
 scaler = None
 
@@ -250,8 +248,8 @@ print("=" * 60)
 
 # New optimizer & scheduler for ALL parameters
 optimizer2 = optim.AdamW(model.parameters(), lr=LR, weight_decay=WD)
-criterion2 = AsymmetricLossMultiLabel()
-scheduler_warmup = optim.lr_scheduler.LinearLR(optimizer2, start_factor=0.1, end_factor=1.0, total_iters=4)
+criterion2 = AsymmetricLossMultiLabel(clip=0.1) # quite big but in our case interesting to try
+scheduler_warmup = optim.lr_scheduler.LinearLR(optimizer2, start_factor=0.5, end_factor=1.5, total_iters=4)
 scheduler_cosine = optim.lr_scheduler.CosineAnnealingLR(optimizer2, T_max=int(EPOCHS/2), eta_min=LR/10)
 scheduler2 = torch.optim.lr_scheduler.SequentialLR(optimizer2, [scheduler_warmup, scheduler_cosine], [4])
 # Reset scaler (fresh start for the new optimizer)
@@ -269,7 +267,7 @@ for epoch in range(int(EPOCHS/2) +4):
     all_probs, all_targets, all_logits = get_outputs(model, val_loader, device=DEVICE)
     factors, f1s = optimize_per_class_factor_f1(all_probs, all_targets, num_classes=14)
     val_loss, tp_acc, tn_acc, tp_bce, tn_bce, tp_bce_rsc, tn_bce_rsc = evaluate_with_factors(
-        all_logits, all_targets, num_classes=14, factors=factors, training_loss=criterion
+        all_logits, all_targets, num_classes=14, factors=factors, training_loss=criterion2
     )
     val_losses.append(val_loss)
     mean_f1 = f1s.mean()
@@ -293,7 +291,7 @@ for epoch in range(int(EPOCHS/2) +4):
 
     # ── Log everything to wandb ──
     wandb.log({
-        "epoch":               epoch + 1 + int(EPOCHS/2),
+        "epoch":               epoch + 1 + int(EPOCHS/2) + 4,
         "train/loss":          train_loss,
         "val/loss":            val_loss,
         "mean_f1":             mean_f1,
