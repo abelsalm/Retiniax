@@ -20,17 +20,24 @@ from transforms import image_size
 
 
 ## train and val with different transforms 
-data_dir = "/workspace/data_15"
+'''data_dir = "/workspace/data_15"
+csv_train = "/workspace/Retiniax/training_data/train_dataset.csv"
+csv_val = "/workspace/Retiniax/training_data/val_dataset.csv"'''
+
+# for local tests
+data_dir = "/Users/abelsalmona/Documents/Retinax/Data/Data Clean/dataset"
+csv_train = "/Users/abelsalmona/Documents/Retinax/Retiniax/training_data/train_dataset_cropped.csv"
+csv_val = "/Users/abelsalmona/Documents/Retinax/Retiniax/training_data/val_dataset_cropped.csv"
 
 # binary for now
 train_dataset = OcularDataset(
-        csv_file="/workspace/Retiniax/training_data/train_dataset.csv",
+        csv_file=csv_train,
         data_dir=data_dir,
         transform=monai_transform_sequence,
     )
 
 val_dataset = OcularDataset(
-        csv_file="/workspace/Retiniax/training_data/val_dataset.csv",
+        csv_file=csv_val,
         data_dir=data_dir,
         transform=val_transform_sequence,
     )
