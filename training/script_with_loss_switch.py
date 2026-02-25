@@ -22,14 +22,14 @@ from transforms import image_size
 if __name__ == '__main__':
 
     ## train and val with different transforms 
-    '''data_dir = "/workspace/data_15"
+    data_dir = "/workspace/data_15"
     csv_train = "/workspace/Retiniax/training_data/train_dataset.csv"
-    csv_val = "/workspace/Retiniax/training_data/val_dataset.csv"'''
+    csv_val = "/workspace/Retiniax/training_data/val_dataset.csv"
 
     # for local tests
-    data_dir = "/Users/abelsalmona/Documents/Retinax/Data/Data Clean/dataset"
+    '''data_dir = "/Users/abelsalmona/Documents/Retinax/Data/Data Clean/dataset"
     csv_train = "/Users/abelsalmona/Documents/Retinax/Retiniax/training_data/train_dataset_cropped.csv"
-    csv_val = "/Users/abelsalmona/Documents/Retinax/Retiniax/training_data/val_dataset_cropped.csv"
+    csv_val = "/Users/abelsalmona/Documents/Retinax/Retiniax/training_data/val_dataset_cropped.csv"'''
 
     train_dataset = OcularDataset(
             csv_file=csv_train,
@@ -43,7 +43,7 @@ if __name__ == '__main__':
             transform=val_transform_sequence,
         )
 
-    BS = 8
+    BS = 32
 
     train_loader = DataLoader(
             train_dataset,
@@ -57,7 +57,7 @@ if __name__ == '__main__':
 
     val_loader = DataLoader(
             val_dataset,
-            batch_size=8,
+            batch_size=BS,
             shuffle=False,
             num_workers=19,
             pin_memory=torch.cuda.is_available(),
@@ -77,7 +77,7 @@ if __name__ == '__main__':
 
     DEVICE        = "cuda" if torch.cuda.is_available() else "cpu"
     FROZEN_EPOCHS =  1
-    EPOCHS        = 10
+    EPOCHS        = 100
     PHASE2_EPOCHS = EPOCHS // 2
     PHASE3_EPOCHS = EPOCHS - PHASE2_EPOCHS
     WARMUP_EPOCHS = 4
@@ -91,7 +91,7 @@ if __name__ == '__main__':
     scaler = None
     global_epoch = 0
 
-    use_wandb = False
+    use_wandb = True
 
     if use_wandb:
         wandb.init(
