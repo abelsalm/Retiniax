@@ -76,9 +76,9 @@ if __name__ == '__main__':
     criterion = CombinedBCELoss(w_tp=4.0, w_tn=0.5, class_weight_tp=weights, class_weight_tn=None)
 
     DEVICE        = "cuda" if torch.cuda.is_available() else "cpu"
-    FROZEN_EPOCHS =  1
+    FROZEN_EPOCHS =  2
     EPOCHS        = 100
-    PHASE2_EPOCHS = EPOCHS // 2
+    PHASE2_EPOCHS =  2*EPOCHS // 5
     PHASE3_EPOCHS = EPOCHS - PHASE2_EPOCHS
     WARMUP_EPOCHS = 4
     LR_FROZEN     = 1e-4
@@ -196,7 +196,7 @@ if __name__ == '__main__':
         param.requires_grad = True
 
     optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=WD)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=PHASE2_EPOCHS, eta_min=LR/10)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=PHASE2_EPOCHS, eta_min=LR/5)
     scaler = None
 
     for epoch in range(PHASE2_EPOCHS):
@@ -259,10 +259,10 @@ if __name__ == '__main__':
     print(f"Encoder UNFROZEN fine-tuning with AsymmetricLossMultiLabel for {PHASE3_EPOCHS} epochs")
     print("=" * 60)
 
-    criterion2 = AsymmetricLossMultiLabel(clip=0.1)
-    optimizer2 = optim.AdamW(model.parameters(), lr=LR, weight_decay=WD)
+    criterion2 = AsymmetricLossMultiLabel(clip=0.05, gamma_neg=3, gamma_pos=1)
+    optimizer2 = optim.AdamW(model.parameters(), lr=LR/5, weight_decay=WD)
     scheduler_warmup = optim.lr_scheduler.LinearLR(optimizer2, start_factor=0.1, end_factor=1.0, total_iters=WARMUP_EPOCHS)
-    scheduler_cosine = optim.lr_scheduler.CosineAnnealingLR(optimizer2, T_max=PHASE3_EPOCHS - WARMUP_EPOCHS, eta_min=LR/10)
+    scheduler_cosine = optim.lr_scheduler.CosineAnnealingLR(optimizer2, T_max=PHASE3_EPOCHS - WARMUP_EPOCHS, eta_min=LR/5)
     scheduler2 = torch.optim.lr_scheduler.SequentialLR(optimizer2, [scheduler_warmup, scheduler_cosine], [WARMUP_EPOCHS])
     scaler = None
 
