@@ -65,7 +65,7 @@ if __name__ == '__main__':
             prefetch_factor=4,
         )
 
-    model_name = "inception_small_base.sail_in1k"
+    model_name = "inception_small.sail_in1k"
     drop_rate = 0
 
     backbone = timm.create_model(model_name, in_chans=3, pretrained=False, num_classes=0, drop_path_rate=drop_rate)
