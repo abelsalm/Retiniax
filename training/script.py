@@ -65,7 +65,7 @@ if __name__ == '__main__':
             prefetch_factor=4,
         )
 
-    model_name = "inception_next_base.sail_in1k_384"
+    model_name = "inception_small_base.sail_in1k"
     drop_rate = 0
 
     backbone = timm.create_model(model_name, in_chans=3, pretrained=False, num_classes=0, drop_path_rate=drop_rate)
@@ -92,9 +92,9 @@ if __name__ == '__main__':
     if use_wandb:
         wandb.init(
             project="retiniax-training",
-            name= "inception_next_base_7",
+            name= "inception_small_base_7",
             config={
-                "backbone":        model_name,
+                "backbone":        'inception_small',
                 "drop_rate":       drop_rate,
                 "n_classes":       14,
                 "batch_size":      BS,
