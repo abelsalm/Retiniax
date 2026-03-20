@@ -20,15 +20,15 @@ from transforms import image_size
 
 if __name__ == '__main__':
 
-    '''## train and val with different transforms 
+    ## train and val with different transforms 
     data_dir = "/workspace/data_15"
     csv_train = "/workspace/Retiniax/training_data/train_dataset.csv"
-    csv_val = "/workspace/Retiniax/training_data/val_dataset.csv"'''
+    csv_val = "/workspace/Retiniax/training_data/val_dataset.csv"
 
     # for local tests
-    data_dir = "/Users/abelsalmona/Documents/Retinax/Data/Data Clean/dataset"
+    '''data_dir = "/Users/abelsalmona/Documents/Retinax/Data/Data Clean/dataset"
     csv_train = "/Users/abelsalmona/Documents/Retinax/Retiniax/training_data/train_dataset_cropped.csv"
-    csv_val = "/Users/abelsalmona/Documents/Retinax/Retiniax/training_data/val_dataset_cropped.csv"
+    csv_val = "/Users/abelsalmona/Documents/Retinax/Retiniax/training_data/val_dataset_cropped.csv"'''
 
     train_dataset = OcularDatasetBinary(
             csv_file=csv_train,
