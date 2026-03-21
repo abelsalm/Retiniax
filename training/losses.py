@@ -296,7 +296,7 @@ class AsymmetricLossBinary(nn.Module):
     
     A specialized wrapper for binary cases (N, 1) or (N,).
     """
-    def __init__(self, gamma_neg=4, gamma_pos=0, clip=0.05, eps=1e-8):
+    def __init__(self, gamma_neg=1, gamma_pos=1, clip=0.05, eps=1e-8):
         super(AsymmetricLossBinary, self).__init__()
         self.asl = AsymmetricLossMultiLabel(gamma_neg, gamma_pos, clip, eps)
 

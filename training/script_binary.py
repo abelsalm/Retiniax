@@ -72,7 +72,7 @@ if __name__ == '__main__':
 
     torch.backends.cudnn.benchmark = True
 
-    criterion = CombinedBCELoss(w_tp=1.0, w_tn=1.0, class_weight_tp=None, class_weight_tn=None)
+    criterion = AsymmetricLossBinary() 
 
     DEVICE        = "cuda" if torch.cuda.is_available() else "cpu"
     FROZEN_EPOCHS =  4
