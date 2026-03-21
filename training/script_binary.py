@@ -72,13 +72,13 @@ if __name__ == '__main__':
 
     torch.backends.cudnn.benchmark = True
 
-    criterion = CombinedBCELoss(w_tp=4.0, w_tn=0.5, class_weight_tp=None, class_weight_tn=None)
+    criterion = CombinedBCELoss(w_tp=1.0, w_tn=1.0, class_weight_tp=None, class_weight_tn=None)
 
     DEVICE        = "cuda" if torch.cuda.is_available() else "cpu"
     FROZEN_EPOCHS =  4
     EPOCHS        = 90
     LR_FROZEN     = 1e-4
-    LR            = 2e-5
+    LR            = 5e-5
     WD            = 8e-5
 
     model.to(DEVICE)
@@ -91,7 +91,7 @@ if __name__ == '__main__':
     if use_wandb:
         wandb.init(
             project="retiniax-training-binary",
-            name= "inception_small_binary_1",
+            name= "inception_small_binary_2",
             config={
                 "backbone":        'inception_small',
                 "drop_rate":       drop_rate,
@@ -102,9 +102,9 @@ if __name__ == '__main__':
                 "epochs":          EPOCHS,
                 "lr":              LR,
                 "weight_decay":    WD,
-                "criterion":       "CombinedBCELoss, w_tp=4.0, w_tn=0.5, no class weights",
+                "criterion":       "CombinedBCELoss, w_tp=1.0, w_tn=1.0, no class weights",
                 "optimizer":       "AdamW",
-                "scheduler":       "CosineAnnealingLR, ConstantLR, SequentialLR with 2/3 of the epochs 2/3 on cosine set to decrease to 1/10 of the initial LR",
+                "scheduler":       "CosineAnnealingLR, ConstantLR, SequentialLR with 2/3 of the epochs 2/3 on cosine set to decrease to 1/5 of the initial LR",
                 "mixed_precision": True,
                 "task":            "binary (healthy vs pathological)",
             },
@@ -188,7 +188,7 @@ if __name__ == '__main__':
         param.requires_grad = True
 
     optimizer = optim.AdamW(model.parameters(), lr=LR, weight_decay=WD)
-    scheduler1 = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=int(2*EPOCHS/3), eta_min=LR/10)
+    scheduler1 = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=int(2*EPOCHS/3), eta_min=LR/5)
     scheduler2 = optim.lr_scheduler.ConstantLR(optimizer, factor=0.1, total_iters=EPOCHS-int(2*EPOCHS/3))
     scheduler = torch.optim.lr_scheduler.SequentialLR(optimizer, [scheduler1, scheduler2], [int(2*EPOCHS/3)])
     scaler = None
