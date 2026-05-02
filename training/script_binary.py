@@ -24,6 +24,7 @@ if __name__ == '__main__':
     data_dir = "/workspace/data_15"
     csv_train = "/workspace/Retiniax/training_data/train_dataset.csv"
     csv_val = "/workspace/Retiniax/training_data/val_dataset.csv"
+    save_dir = "/workspace/data_15"
 
     # for local tests
     '''data_dir = "/Users/abelsalmona/Documents/Retinax/Data/Data Clean/dataset"
@@ -42,7 +43,7 @@ if __name__ == '__main__':
             transform=val_transform_sequence,
         )
 
-    BS = 32
+    BS = 8
 
     train_loader = DataLoader(
             train_dataset,
@@ -76,10 +77,10 @@ if __name__ == '__main__':
 
     DEVICE        = "cuda" if torch.cuda.is_available() else "cpu"
     FROZEN_EPOCHS =  4
-    EPOCHS        = 90
+    EPOCHS        = 120
     LR_FROZEN     = 1e-4
     LR            = 5e-5
-    WD            = 8e-5
+    WD            = 1e-5
 
     model.to(DEVICE)
 
