@@ -51,6 +51,8 @@ class Config:
     num_workers: int = 8
     seed: int = 42
     tune_xgboost: bool = False
+    max_rf_trials: int = 15
+    feature_cache: bool = True
 
 
 class FeatureBackbone(nn.Module):
@@ -110,10 +112,26 @@ def parse_args() -> Config:
     parser.add_argument("--num-workers", type=int, default=Config.num_workers)
     parser.add_argument("--seed", type=int, default=Config.seed)
     parser.add_argument(
+        "--max-rf-trials",
+        type=int,
+        default=Config.max_rf_trials,
+        help=(
+            "Maximum number of RandomForest hyperparameter combinations to test. "
+            "Use 0 to test the full grid."
+        ),
+    )
+    parser.add_argument(
+        "--no-feature-cache",
+        action="store_false",
+        dest="feature_cache",
+        help="Disable saving/loading extracted backbone features from output_dir.",
+    )
+    parser.add_argument(
         "--tune-xgboost",
         action="store_true",
         help="Also tune an XGBoost head if xgboost is installed.",
     )
+    parser.set_defaults(feature_cache=Config.feature_cache)
     return Config(**vars(parser.parse_args()))
 
 
@@ -170,6 +188,15 @@ def build_loader(csv_path: str, data_dir: str, batch_size: int, num_workers: int
         pin_memory=torch.cuda.is_available(),
         persistent_workers=num_workers > 0,
         prefetch_factor=4 if num_workers > 0 else None,
+    )
+
+
+def feature_cache_paths(output_dir: str) -> tuple[Path, Path, Path]:
+    cache_dir = Path(output_dir) / "feature_cache"
+    return (
+        cache_dir / "train_features.npy",
+        cache_dir / "val_features.npy",
+        cache_dir / "feature_cache_metadata.json",
     )
 
 
@@ -238,6 +265,46 @@ def extract_features(
         batch_features = feature_model(images)
         features.append(batch_features.cpu().numpy())
     return np.concatenate(features, axis=0)
+
+
+def load_or_extract_features(
+    config: Config,
+    feature_model: FeatureBackbone,
+    train_loader: DataLoader,
+    val_loader: DataLoader,
+    device: torch.device,
+) -> tuple[np.ndarray, np.ndarray]:
+    train_cache_path, val_cache_path, metadata_path = feature_cache_paths(config.output_dir)
+    if config.feature_cache and train_cache_path.exists() and val_cache_path.exists():
+        print(f"Loading cached features from {train_cache_path.parent}", flush=True)
+        x_train = np.load(train_cache_path)
+        x_val = np.load(val_cache_path)
+        print(f"Cached feature shapes | train: {x_train.shape}, val: {x_val.shape}", flush=True)
+        return x_train, x_val
+
+    x_train = extract_features(feature_model, train_loader, device, "train")
+    x_val = extract_features(feature_model, val_loader, device, "val")
+
+    if config.feature_cache:
+        train_cache_path.parent.mkdir(parents=True, exist_ok=True)
+        np.save(train_cache_path, x_train)
+        np.save(val_cache_path, x_val)
+        with open(metadata_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "csv_train": config.csv_train,
+                    "csv_val": config.csv_val,
+                    "checkpoint_path": config.checkpoint_path,
+                    "model_name": config.model_name,
+                    "train_shape": list(x_train.shape),
+                    "val_shape": list(x_val.shape),
+                },
+                f,
+                indent=2,
+            )
+        print(f"Saved feature cache to {train_cache_path.parent}", flush=True)
+
+    return x_train, x_val
 
 
 def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_prob: np.ndarray | None) -> dict[str, Any]:
@@ -356,21 +423,34 @@ def tune_random_forest(
     x_val: np.ndarray,
     y_val: np.ndarray,
     seed: int,
+    max_trials: int,
 ) -> tuple[RandomForestClassifier, dict[str, Any], list[dict[str, Any]]]:
     param_grid = {
-        "n_estimators": [300, 600, 1000],
-        "max_depth": [None, 8, 16, 32],
-        "min_samples_split": [2, 5, 10],
-        "min_samples_leaf": [1, 2, 4],
-        "max_features": ["sqrt", "log2", 0.5],
-        "class_weight": ["balanced", "balanced_subsample"],
+        "n_estimators": [300, 600],
+        "max_depth": [None, 20],
+        "min_samples_split": [2, 8],
+        "min_samples_leaf": [1, 3],
+        "max_features": ["sqrt"],
+        "class_weight": ["balanced"],
     }
+    param_candidates = list(ParameterGrid(param_grid))
+    if max_trials > 0 and max_trials < len(param_candidates):
+        rng = np.random.default_rng(seed)
+        selected_indices = rng.choice(len(param_candidates), size=max_trials, replace=False)
+        param_candidates = [param_candidates[int(idx)] for idx in selected_indices]
+
+    print(
+        f"Starting RandomForest tuning: {len(param_candidates)} trial(s). "
+        f"Set --max-rf-trials 0 to run the full grid.",
+        flush=True,
+    )
 
     best_model: RandomForestClassifier | None = None
     best_result: dict[str, Any] | None = None
     all_results = []
 
-    for params in tqdm(list(ParameterGrid(param_grid)), desc="Tuning RandomForest"):
+    for trial_idx, params in enumerate(tqdm(param_candidates, desc="Tuning RandomForest"), start=1):
+        print(f"RF trial {trial_idx}/{len(param_candidates)} starting | Params={params}", flush=True)
         model = RandomForestClassifier(
             **params,
             random_state=seed,
@@ -393,6 +473,8 @@ def tune_random_forest(
                 f"BalancedAcc={metrics['balanced_accuracy']:.4f} | "
                 f"Recall={metrics['recall']:.4f} | "
                 f"Params={params}"
+                ,
+                flush=True,
             )
 
     if best_model is None or best_result is None:
@@ -543,9 +625,14 @@ def main() -> None:
     )
 
     feature_model = load_feature_backbone(config, device)
-    x_train = extract_features(feature_model, train_loader, device, "train")
-    x_val = extract_features(feature_model, val_loader, device, "val")
-    print(f"Feature shapes | train: {x_train.shape}, val: {x_val.shape}")
+    x_train, x_val = load_or_extract_features(
+        config=config,
+        feature_model=feature_model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        device=device,
+    )
+    print(f"Feature shapes | train: {x_train.shape}, val: {x_val.shape}", flush=True)
 
     rf_model, rf_best, rf_results = tune_random_forest(
         x_train=x_train,
@@ -553,6 +640,7 @@ def main() -> None:
         x_val=x_val,
         y_val=y_val,
         seed=config.seed,
+        max_trials=config.max_rf_trials,
     )
     candidates = [(rf_model, rf_best)]
     all_results = rf_results
