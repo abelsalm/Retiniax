@@ -3,6 +3,7 @@ import json
 import os
 import pickle
 import sys
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -43,14 +44,14 @@ class Config:
     csv_train: str = "/workspace/Retiniax/training_data/train_dataset.csv"
     csv_val: str = "/workspace/Retiniax/training_data/val_dataset.csv"
     checkpoint_path: str = "/workspace/data_15/best_dot_acc_0111_0120_ep0111_0.667376.pt"
-    output_dir: str = "/workspace/data_15/binary_rf_head"
+    output_dir: str = "/workspace/data_15"
     model_name: str = "inception_next_small.sail_in1k"
     drop_rate: float = 0.0
     n_classes: int = 14
     batch_size: int = 32
     num_workers: int = 8
     seed: int = 42
-    tune_xgboost: bool = False
+    tune_xgboost: bool = True
     max_rf_trials: int = 15
     feature_cache: bool = True
 
@@ -439,18 +440,36 @@ def tune_random_forest(
         selected_indices = rng.choice(len(param_candidates), size=max_trials, replace=False)
         param_candidates = [param_candidates[int(idx)] for idx in selected_indices]
 
+    total_trials = len(param_candidates)
+    print("=" * 80, flush=True)
     print(
-        f"Starting RandomForest tuning: {len(param_candidates)} trial(s). "
-        f"Set --max-rf-trials 0 to run the full grid.",
+        f"Starting RandomForest tuning: {total_trials} model(s) to test. "
+        f"Already tested: 0 | Remaining: {total_trials}",
         flush=True,
     )
+    print("Set --max-rf-trials 0 to run the full grid.", flush=True)
+    print("=" * 80, flush=True)
 
     best_model: RandomForestClassifier | None = None
     best_result: dict[str, Any] | None = None
     all_results = []
 
-    for trial_idx, params in enumerate(tqdm(param_candidates, desc="Tuning RandomForest"), start=1):
-        print(f"RF trial {trial_idx}/{len(param_candidates)} starting | Params={params}", flush=True)
+    progress_bar = tqdm(
+        param_candidates,
+        desc="Tuning RandomForest",
+        total=total_trials,
+        file=sys.stdout,
+        dynamic_ncols=True,
+    )
+    for trial_idx, params in enumerate(progress_bar, start=1):
+        tested_before = trial_idx - 1
+        remaining_before = total_trials - tested_before
+        print(
+            f"[RF {trial_idx}/{total_trials}] Starting model | "
+            f"tested={tested_before} | remaining={remaining_before} | params={params}",
+            flush=True,
+        )
+        trial_start = time.time()
         model = RandomForestClassifier(
             **params,
             random_state=seed,
@@ -463,6 +482,9 @@ def tune_random_forest(
         metrics = compute_metrics(y_val, y_pred, y_prob)
         result = {"model_type": "random_forest", "params": params, "metrics": metrics}
         all_results.append(result)
+        elapsed = time.time() - trial_start
+        tested_after = trial_idx
+        remaining_after = total_trials - tested_after
 
         if best_result is None or metrics["f1"] > best_result["metrics"]["f1"]:
             best_result = result
@@ -472,10 +494,28 @@ def tune_random_forest(
                 f"F1={metrics['f1']:.4f} | "
                 f"BalancedAcc={metrics['balanced_accuracy']:.4f} | "
                 f"Recall={metrics['recall']:.4f} | "
-                f"Params={params}"
-                ,
+                f"Params={params}",
                 flush=True,
             )
+        best_f1 = best_result["metrics"]["f1"] if best_result is not None else metrics["f1"]
+        progress_bar.set_postfix(
+            {
+                "tested": tested_after,
+                "remaining": remaining_after,
+                "f1": f"{metrics['f1']:.4f}",
+                "best_f1": f"{best_f1:.4f}",
+            }
+        )
+        print(
+            f"[RF {trial_idx}/{total_trials}] Finished in {elapsed / 60:.1f} min | "
+            f"tested={tested_after} | remaining={remaining_after} | "
+            f"F1={metrics['f1']:.4f} | "
+            f"BalancedAcc={metrics['balanced_accuracy']:.4f} | "
+            f"Precision={metrics['precision']:.4f} | "
+            f"Recall={metrics['recall']:.4f} | "
+            f"BestF1={best_f1:.4f}",
+            flush=True,
+        )
 
     if best_model is None or best_result is None:
         raise RuntimeError("RandomForest tuning did not produce a model.")
